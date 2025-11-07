@@ -227,7 +227,7 @@ impl<'a> Default for State {
             api_joins: tokio::task::JoinSet::new(),
             write_joins: tokio::task::JoinSet::new(),
             client: reqwest::ClientBuilder::new()
-                .user_agent("LRCFETCH v0.0.0 (Not published)")
+                .user_agent("LRCFETCH v0.0.0 (https://github.com/hagaraShin/lrcfetch-tui)")
                 .build()
                 .unwrap(),
             client_limiter: Arc::new(Semaphore::new(50)),
