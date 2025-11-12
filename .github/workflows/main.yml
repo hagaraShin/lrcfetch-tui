@@ -1,6 +1,5 @@
 name: Release
 on: release
-
 jobs:
   release:
     name: release
