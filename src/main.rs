@@ -324,10 +324,12 @@ impl Func {
     }
     async fn set_settings(state: &mut State, settings: Settings) {
         state.settings = settings;
+        eprintln!("YOU SUCK BITCH");
         Func::set_concurrent_queries(state, state.settings.concurrent_queries);
         let Some(data) = scan_music(state.settings.music_path.clone()) else {
             return;
         };
+        eprintln!("YOU SUCK BITCH");
         state.music = data;
         let mut joinset = JoinSet::new();
         for music in state.music.iter() {
@@ -398,7 +400,6 @@ async fn main() {
     for map in KEYMAP {
         keymap.insert(map.0, map.1);
     }
-
     let mut args = env::args();
     if let None = args.next() {};
     'config_block: {
@@ -491,14 +492,18 @@ fn scan_music(path: PathBuf) -> Option<Vec<MusicData>> {
     queue.push_back(dir);
     while !queue.is_empty() {
         let Some(Ok(dir)) = queue.pop_front() else {
+            eprintln!("We suck");
             continue;
         };
 
         for entry in dir {
             let Ok(entry) = entry else {
+                println!("We suck 2:Electric Boogaloo");
                 continue;
             };
+            println!("{}", entry.path().display());
             let Ok(metadata) = entry.metadata() else {
+                println!("We suck 3:Electric Boogaloo");
                 continue;
             };
             if metadata.is_dir() {
@@ -512,10 +517,12 @@ fn scan_music(path: PathBuf) -> Option<Vec<MusicData>> {
                         if MUSIC_EXTENSIONS.contains(&ext) {
                             Some(entry.path())
                         } else {
+                            println!("We suck 4:Electric Boogaloo");
                             None
                         }
                     })
                 else {
+                    println!("We suck 5:Electric Boogaloo");
                     continue;
                 };
                 vec.push(path);
@@ -525,6 +532,7 @@ fn scan_music(path: PathBuf) -> Option<Vec<MusicData>> {
     let mut res = Vec::new();
     for path in vec {
         let Ok(data) = MusicData::from_file(path) else {
+            println!("We suck 6:Electric Boogaloo");
             continue;
         };
         res.push(data);
