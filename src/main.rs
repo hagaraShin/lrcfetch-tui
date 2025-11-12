@@ -324,12 +324,10 @@ impl Func {
     }
     async fn set_settings(state: &mut State, settings: Settings) {
         state.settings = settings;
-        eprintln!("YOU SUCK BITCH");
         Func::set_concurrent_queries(state, state.settings.concurrent_queries);
         let Some(data) = scan_music(state.settings.music_path.clone()) else {
             return;
         };
-        eprintln!("YOU SUCK BITCH");
         state.music = data;
         let mut joinset = JoinSet::new();
         for music in state.music.iter() {
@@ -492,7 +490,6 @@ fn scan_music(path: PathBuf) -> Option<Vec<MusicData>> {
     queue.push_back(dir);
     while !queue.is_empty() {
         let Some(Ok(dir)) = queue.pop_front() else {
-            eprintln!("We suck");
             continue;
         };
 
