@@ -17,11 +17,4 @@ jobs:
     - name: Build for linux
       run: cargo build --verbose --release
     - name: Upload linux binaries to release
-      uses: svenstaro/upload-release-action@v2
-      with:
-        repo_token: ${{ secrets.GITHUB_TOKEN }}
-        file: target/release/lrcfetch
-        asset_name: lrcfetch-x86_64-unknown-linux-gnu
-        tag: ${{ github.ref }}
-        overwrite: true
-      
+      run: gh release upload ${{ github.ref }} ./target/release/lrcfetch
