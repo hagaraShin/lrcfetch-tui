@@ -149,7 +149,7 @@ impl Filter {
         if let Some(album) = &self.album {
             list.push(Text::raw(format!("Album: {}", album)).centered());
         } else {
-            list.push(Text::raw(format!("Album")).centered());
+            list.push(Text::raw(format!("Album:")).centered());
         }
         List::new(list)
     }
