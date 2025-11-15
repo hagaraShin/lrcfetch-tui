@@ -233,9 +233,20 @@ impl StatefulWidget for Screen<'_> {
         let txt = Text::raw("q - quit, j - down, k - up").alignment(Alignment::Center);
         txt.render(status_area, buf);
         let block = Block::bordered().title("Lyrics");
-        if let Some(selected) = state.table_state.selected() {
-            if let Some(log) = state.lyrics.get(&state.music[selected].path) {
-                let txt = match log {
+        'lyrics: {
+            let Some(selected) = state.table_state.selected() else {
+                break 'lyrics;
+            };
+            let Some(item) = state
+                .music
+                .iter()
+                .filter(|x| state.filter.apply(x))
+                .nth(selected)
+            else {
+                break 'lyrics;
+            };
+            if let Some(lyric) = state.lyrics.get(&item.path) {
+                let txt = match lyric {
                     Lyrics::None => Text::raw("None"),
                     Lyrics::Instrumental => Text::raw("Instrumental"),
                     Lyrics::Plain(txt) => Text::raw(txt),
