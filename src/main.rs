@@ -17,18 +17,31 @@ use ratatui::{
     layout::{Alignment, Layout, Rect},
     style::{Color, Style},
     text::Text,
-    widgets::{self, Block, Clear, StatefulWidget, Table, TableState, Widget},
+    widgets::{self, Block, Clear, List, ListState, StatefulWidget, Table, TableState, Widget},
 };
 
 use crate::musicdata::{Lyrics, MusicData};
-
-const KEYMAP: [(KeyBind, Func); 5] = [
+const KEYMAP: [(KeyBind, Func); 10] = [
     (
         KeyBind {
             keycode: KeyCode::Char('a'),
             screen: Screens::Main,
         },
         Func::ScanAll,
+    ),
+    (
+        KeyBind {
+            keycode: KeyCode::Char('f'),
+            screen: Screens::Main,
+        },
+        Func::OpenFiltersPopup,
+    ),
+    (
+        KeyBind {
+            keycode: KeyCode::Char('q'),
+            screen: Screens::Filters,
+        },
+        Func::CloseFiltersPopup,
     ),
     (
         KeyBind {
@@ -43,6 +56,27 @@ const KEYMAP: [(KeyBind, Func); 5] = [
             screen: Screens::Main,
         },
         Func::SelectPrevious,
+    ),
+    (
+        KeyBind {
+            keycode: KeyCode::Char('j'),
+            screen: Screens::Filters,
+        },
+        Func::FiltersSelectNext,
+    ),
+    (
+        KeyBind {
+            keycode: KeyCode::Char('k'),
+            screen: Screens::Filters,
+        },
+        Func::FiltersSelectPrevious,
+    ),
+    (
+        KeyBind {
+            keycode: KeyCode::Enter,
+            screen: Screens::Filters,
+        },
+        Func::OpenSelectedFilter,
     ),
     (
         KeyBind {
@@ -61,7 +95,65 @@ const KEYMAP: [(KeyBind, Func); 5] = [
 ];
 
 const HIGHLIGHT_STYLE: Style = Style::new().bg(Color::White).fg(Color::Black);
-const MUSIC_EXTENSIONS: [&str; 4] = ["mp3", "wav", "ogg", "flac"];
+const MUSIC_EXTENSIONS: [&str; 1] = ["flac"];
+
+#[derive(Default)]
+struct Filter {
+    title: Option<String>,
+    artist: Option<String>,
+    album: Option<String>,
+}
+impl Filter {
+    fn apply(&self, item: &MusicData) -> bool {
+        if let Some(album_filter) = &self.album {
+            if !item
+                .album
+                .to_ascii_lowercase()
+                .contains(album_filter.to_ascii_lowercase().as_str())
+            {
+                return false;
+            }
+        }
+        if let Some(artist_filter) = &self.artist {
+            if !item
+                .artist
+                .to_ascii_lowercase()
+                .contains(artist_filter.to_ascii_lowercase().as_str())
+            {
+                return false;
+            }
+        }
+        if let Some(title_filter) = &self.title {
+            if !item
+                .title
+                .to_ascii_lowercase()
+                .contains(title_filter.to_ascii_lowercase().as_str())
+            {
+                return false;
+            }
+        }
+        true
+    }
+    fn to_widget(&self) -> List {
+        let mut list = Vec::new();
+        if let Some(title) = &self.title {
+            list.push(Text::raw(format!("Title: {}", title)).centered());
+        } else {
+            list.push(Text::raw(format!("Title:")).centered());
+        }
+        if let Some(artist) = &self.artist {
+            list.push(Text::raw(format!("Artist: {}", artist)).centered());
+        } else {
+            list.push(Text::raw(format!("Artist:")).centered());
+        }
+        if let Some(album) = &self.album {
+            list.push(Text::raw(format!("Album: {}", album)).centered());
+        } else {
+            list.push(Text::raw(format!("Album")).centered());
+        }
+        List::new(list)
+    }
+}
 
 #[derive(Clone)]
 struct Screen<'a> {
@@ -69,20 +161,39 @@ struct Screen<'a> {
 }
 
 impl Screen<'_> {
-    fn render_popup(&self, area: Rect, buf: &mut Buffer, state: &mut State) {
-        use ratatui::layout::Constraint::Percentage;
+    fn render_text_input(&self, area: Rect, buf: &mut Buffer, state: &mut State) {
+        use ratatui::layout::Constraint::{Length, Percentage};
         use ratatui::layout::Flex::Center;
 
-        let [area] = Layout::vertical([Percentage(50)]).flex(Center).areas(area);
+        let [area] = Layout::vertical([Length(3)]).flex(Center).areas(area);
         let [area] = Layout::horizontal([Percentage(50)])
             .flex(Center)
             .areas(area);
         Clear::default().render(area, buf);
-        let border = Block::bordered().title("Settings");
+        let border = Block::bordered()
+            .title("Input")
+            .title_alignment(Alignment::Center);
         let inner = border.inner(area);
         border.render(area, buf);
-        let text = Text::raw(ron::to_string(&state.settings).unwrap());
+        let text = Text::raw(state.current_string.as_str()).centered();
         text.render(inner, buf);
+    }
+    fn render_filters_popup(&self, area: Rect, buf: &mut Buffer, state: &mut State) {
+        use ratatui::layout::Constraint::{Length, Percentage};
+        use ratatui::layout::Flex::Center;
+
+        let [area] = Layout::vertical([Length(5)]).flex(Center).areas(area);
+        let [area] = Layout::horizontal([Percentage(50)])
+            .flex(Center)
+            .areas(area);
+        Clear::default().render(area, buf);
+        let border = Block::bordered()
+            .title("Filters")
+            .title_alignment(Alignment::Center);
+        let inner = border.inner(area);
+        border.render(area, buf);
+        let list = state.filter.to_widget().highlight_style(HIGHLIGHT_STYLE);
+        StatefulWidget::render(list, inner, buf, &mut state.filters_popup_state);
     }
 }
 
@@ -104,9 +215,8 @@ impl StatefulWidget for Screen<'_> {
         let horizontal = Layout::horizontal([Fill(1); 2]);
         let [left_area, right_area] = horizontal.areas(main_area);
         let block = Block::bordered().title("Tracks");
-        let cloned = self.clone();
         StatefulWidget::render(
-            self.tracks,
+            self.tracks.clone(),
             block.inner(left_area),
             buf,
             &mut state.table_state,
@@ -138,9 +248,11 @@ impl StatefulWidget for Screen<'_> {
             }
         }
         block.render(right_area, buf);
-        if state.screen == Screens::Settings {
-            cloned.render_popup(area, buf, state);
-        };
+        if let Some(_) = &state.field {
+            self.render_text_input(area, buf, state);
+        } else if state.screen == Screens::Filters {
+            self.render_filters_popup(area, buf, state);
+        }
     }
 }
 
@@ -193,6 +305,68 @@ struct State {
     client: reqwest::Client,
     client_limiter: Arc<Semaphore>,
     file_limiter: Arc<Semaphore>,
+    filter: Filter,
+    field: Option<Fields>,
+    current_string: String,
+    filters_popup_state: ListState,
+}
+
+#[derive(Clone)]
+enum Fields {
+    Title,
+    Artist,
+    Album,
+}
+
+impl State {
+    fn event_handler(&mut self, event: Event, keymap: &HashMap<KeyBind, Func>) {
+        match event {
+            Event::Key(event) => {
+                if !event.is_press() {
+                    return;
+                }
+                match self.field.clone() {
+                    Some(field) => match event.code {
+                        KeyCode::Enter => {
+                            let str = if self.current_string.is_empty() {
+                                None
+                            } else {
+                                let res = Some(self.current_string.clone());
+                                self.current_string = String::new();
+                                res
+                            };
+                            self.set_field(field, str);
+                            self.field = None;
+                        }
+                        KeyCode::Char(c) => {
+                            self.current_string.push(c);
+                        }
+                        KeyCode::Backspace => {
+                            self.current_string.pop();
+                        }
+                        _ => {}
+                    },
+                    None => {
+                        let code = KeyBind {
+                            screen: self.screen,
+                            keycode: event.code,
+                        };
+                        if let Some(func) = keymap.get(&code) {
+                            func.call(self);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    fn set_field(&mut self, field: Fields, value: Option<String>) {
+        match field {
+            Fields::Title => self.filter.title = value,
+            Fields::Artist => self.filter.artist = value,
+            Fields::Album => self.filter.album = value,
+        }
+    }
 }
 
 struct LyricsRecord {
@@ -233,6 +407,10 @@ impl<'a> Default for State {
             client_limiter: Arc::new(Semaphore::new(50)),
             file_limiter: Arc::new(Semaphore::new(50)),
             settings: Settings::default(),
+            filter: Filter::default(),
+            field: None,
+            current_string: String::new(),
+            filters_popup_state: ListState::default(),
         };
     }
 }
@@ -240,7 +418,7 @@ impl<'a> Default for State {
 #[derive(Hash, Clone, Copy, PartialEq, Eq)]
 enum Screens {
     Main,
-    Settings,
+    Filters,
 }
 
 #[derive(Hash, PartialEq, Eq)]
@@ -255,7 +433,15 @@ enum Func {
     ScanSelected,
     SelectNext,
     SelectPrevious,
+    OpenFiltersPopup,
+    OpenFilterTitle,
+    OpenFilterAlbum,
+    OpenFilterArtist,
     Quit,
+    CloseFiltersPopup,
+    FiltersSelectNext,
+    FiltersSelectPrevious,
+    OpenSelectedFilter,
 }
 
 fn default_config_path() -> Option<PathBuf> {
@@ -314,6 +500,41 @@ impl Func {
             Func::SelectNext => Self::select_next(state),
             Func::SelectPrevious => Self::select_previous(state),
             Func::Quit => Self::quit(state),
+            Func::OpenFilterTitle => {
+                state.current_string = state.filter.title.clone().unwrap_or(String::new());
+                state.field = Some(Fields::Title);
+            }
+            Func::OpenFilterAlbum => {
+                state.current_string = state.filter.album.clone().unwrap_or(String::new());
+                state.field = Some(Fields::Album);
+            }
+            Func::OpenFilterArtist => {
+                state.current_string = state.filter.artist.clone().unwrap_or(String::new());
+                state.field = Some(Fields::Artist);
+            }
+            Func::OpenFiltersPopup => {
+                state.screen = Screens::Filters;
+            }
+            Func::CloseFiltersPopup => {
+                state.screen = Screens::Main;
+            }
+            Func::FiltersSelectNext => state.filters_popup_state.select_next(),
+            Func::FiltersSelectPrevious => state.filters_popup_state.select_previous(),
+            Func::OpenSelectedFilter => match state.filters_popup_state.selected() {
+                Some(0) => {
+                    state.current_string = state.filter.title.clone().unwrap_or(String::new());
+                    state.field = Some(Fields::Title);
+                }
+                Some(1) => {
+                    state.current_string = state.filter.artist.clone().unwrap_or(String::new());
+                    state.field = Some(Fields::Artist);
+                }
+                Some(2) => {
+                    state.current_string = state.filter.album.clone().unwrap_or(String::new());
+                    state.field = Some(Fields::Album);
+                }
+                _ => {}
+            },
         }
     }
 
@@ -350,7 +571,13 @@ impl Func {
         Self::select_next(state);
     }
     fn scan_all(state: &mut State) {
-        for m in state.music.clone() {
+        for m in state
+            .music
+            .clone()
+            .into_iter()
+            .filter(|x| state.filter.apply(x))
+            .collect::<Vec<_>>()
+        {
             if let Some(Lyrics::None) = state.lyrics.get(&m.path) {
                 Self::scan_music(m, state);
             } else if let Some(Lyrics::Plain(_)) = state.lyrics.get(&m.path) {
@@ -390,6 +617,37 @@ impl Func {
     }
 }
 
+async fn get_or_create_config(state: &mut State) {
+    if let Some(config_path) = default_config_path() {
+        let config_file = tokio::fs::read_to_string(config_path)
+            .await
+            .unwrap_or_default();
+        if let Ok(settings) = ron::from_str::<Settings>(config_file.as_str()) {
+            Func::set_settings(state, settings).await;
+        }
+    } else if let Some(path) = default_future_config_path() {
+        Func::set_settings(state, Settings::default()).await;
+        if let Some(parent) = path.parent() {
+            let Ok(()) = tokio::fs::create_dir_all(parent).await else {
+                return;
+            };
+        } else {
+            return;
+        };
+        let Ok(mut file) = tokio::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .open(path)
+            .await
+        else {
+            return;
+        };
+        let settings = Settings::default();
+        let ron = ron::to_string(&settings).unwrap();
+        file.write_all(ron.as_bytes()).await.unwrap();
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let mut terminal = ratatui::init();
@@ -400,82 +658,44 @@ async fn main() {
     }
     let mut args = env::args();
     if let None = args.next() {};
-    'config_block: {
-        if let Some(config_path) = default_config_path() {
-            let config_file = tokio::fs::read_to_string(config_path)
-                .await
-                .unwrap_or_default();
-            if let Ok(settings) = ron::from_str::<Settings>(config_file.as_str()) {
-                Func::set_settings(&mut state, settings).await;
-            }
-        } else if let Some(path) = default_future_config_path() {
-            Func::set_settings(&mut state, Settings::default()).await;
-            if let Some(parent) = path.parent() {
-                let Ok(()) = tokio::fs::create_dir_all(parent).await else {
-                    break 'config_block;
-                };
-            } else {
-                break 'config_block;
-            };
-            let Ok(mut file) = tokio::fs::OpenOptions::new()
-                .write(true)
-                .create(true)
-                .open(path)
-                .await
-            else {
-                break 'config_block;
-            };
-            let settings = Settings::default();
-            let ron = ron::to_string(&settings).unwrap();
-            file.write_all(ron.as_bytes()).await.unwrap();
-        }
-    }
+    get_or_create_config(&mut state).await;
 
     loop {
         if state.total == state.done {
             state.total = 0;
             state.done = 0;
         }
+
         while let Some(Ok(log)) = state.api_joins.try_join_next() {
             log.save(&mut state);
             state.lyrics.insert(log.path, log.lyrics);
             state.done += 1;
         }
         while let Some(Ok(_)) = state.write_joins.try_join_next() {}
+
         let music = state.music.clone();
         let mut screen = Screen::default();
-        screen.tracks = screen.tracks.rows(music.iter().map(|s| s.to_row()));
+        screen.tracks = screen.tracks.rows(
+            music
+                .iter()
+                .filter(|s| state.filter.apply(s))
+                .map(|s| s.to_row()),
+        );
+
         if let Err(e) = terminal.draw(|frame| {
             frame.render_stateful_widget(screen, frame.area(), &mut state);
         }) {
             println!("Error: {}", e);
             break;
         }
-        'kek: {
-            let Ok(true) = event::poll(Duration::from_millis(50)) else {
-                break 'kek;
-            };
+
+        if let Ok(true) = event::poll(Duration::from_millis(50)) {
             match event::read() {
-                Ok(event) => match event {
-                    Event::Key(event) => {
-                        if !event.is_press() {
-                            break 'kek;
-                        }
-                        let code = KeyBind {
-                            screen: state.screen,
-                            keycode: event.code,
-                        };
-                        if let Some(func) = keymap.get(&code) {
-                            func.call(&mut state);
-                        }
-                    }
-                    _ => {}
-                },
-                Err(_) => {
-                    break 'kek;
-                }
+                Ok(event) => state.event_handler(event, &keymap),
+                Err(_) => {}
             }
-        }
+        };
+
         if state.will_quit {
             break;
         }
